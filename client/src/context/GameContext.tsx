@@ -5,13 +5,14 @@ import { RoomInfo, PlayerInfo, PublicGameState, Role, Question, GamePhase } from
 interface GameContextState {
   room: RoomInfo | null;
   playerId: string | null;
+  reconnectToken: string | null;
   myRole: Role | null;
   secretWord: string | null;
   error: string | null;
 }
 
 type GameAction =
-  | { type: 'SET_ROOM'; payload: { room: RoomInfo; playerId: string } }
+  | { type: 'SET_ROOM'; payload: { room: RoomInfo; playerId: string; reconnectToken: string } }
   | { type: 'PLAYER_JOINED'; payload: PlayerInfo }
   | { type: 'PLAYER_LEFT'; payload: string }
   | { type: 'PLAYER_RECONNECTED'; payload: string }
@@ -33,6 +34,7 @@ type GameAction =
 const initialState: GameContextState = {
   room: null,
   playerId: null,
+  reconnectToken: null,
   myRole: null,
   secretWord: null,
   error: null,
@@ -41,10 +43,17 @@ const initialState: GameContextState = {
 function gameReducer(state: GameContextState, action: GameAction): GameContextState {
   switch (action.type) {
     case 'SET_ROOM':
+      // Store reconnect credentials in sessionStorage for page refresh recovery
+      sessionStorage.setItem('insider_reconnect', JSON.stringify({
+        roomCode: action.payload.room.code,
+        playerId: action.payload.playerId,
+        reconnectToken: action.payload.reconnectToken,
+      }));
       return {
         ...state,
         room: action.payload.room,
         playerId: action.payload.playerId,
+        reconnectToken: action.payload.reconnectToken,
         error: null,
       };
 
@@ -229,6 +238,7 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
       };
 
     case 'LEAVE_ROOM':
+      sessionStorage.removeItem('insider_reconnect');
       return initialState;
 
     default:
@@ -239,6 +249,7 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
 interface GameContextValue extends GameContextState {
   createRoom: (playerName: string) => void;
   joinRoom: (roomCode: string, playerName: string) => void;
+  reconnectToRoom: (roomCode: string, playerId: string, reconnectToken: string) => void;
   leaveRoom: () => void;
   startGame: () => void;
   askQuestion: (text: string) => void;
@@ -275,8 +286,8 @@ export function GameProvider({ children }: GameProviderProps) {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('room_joined', ({ room, playerId }) => {
-      dispatch({ type: 'SET_ROOM', payload: { room, playerId } });
+    socket.on('room_joined', ({ room, playerId, reconnectToken }) => {
+      dispatch({ type: 'SET_ROOM', payload: { room, playerId, reconnectToken } });
     });
 
     socket.on('player_joined', ({ player }) => {
@@ -373,12 +384,33 @@ export function GameProvider({ children }: GameProviderProps) {
     };
   }, [socket]);
 
+  // Auto-reconnect on page refresh if credentials exist in sessionStorage
+  useEffect(() => {
+    if (!socket) return;
+
+    const stored = sessionStorage.getItem('insider_reconnect');
+    if (stored && !state.room) {
+      try {
+        const { roomCode, playerId, reconnectToken } = JSON.parse(stored);
+        if (roomCode && playerId && reconnectToken) {
+          socket.emit('reconnect_to_room', { roomCode, playerId, reconnectToken });
+        }
+      } catch {
+        sessionStorage.removeItem('insider_reconnect');
+      }
+    }
+  }, [socket, state.room]);
+
   const createRoom = useCallback((playerName: string) => {
     socket?.emit('create_room', { playerName });
   }, [socket]);
 
   const joinRoom = useCallback((roomCode: string, playerName: string) => {
     socket?.emit('join_room', { roomCode, playerName });
+  }, [socket]);
+
+  const reconnectToRoom = useCallback((roomCode: string, playerId: string, reconnectToken: string) => {
+    socket?.emit('reconnect_to_room', { roomCode, playerId, reconnectToken });
   }, [socket]);
 
   const leaveRoom = useCallback(() => {
@@ -427,6 +459,7 @@ export function GameProvider({ children }: GameProviderProps) {
     ...state,
     createRoom,
     joinRoom,
+    reconnectToRoom,
     leaveRoom,
     startGame,
     askQuestion,

@@ -1,4 +1,9 @@
+import { randomBytes } from 'crypto';
 import { Room, Player, GameState, GamePhase, RoomInfo, PlayerInfo, PublicGameState } from '../types/index.js';
+
+function generateReconnectToken(): string {
+  return randomBytes(32).toString('hex');
+}
 
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -28,18 +33,20 @@ export class RoomManager {
   private rooms: Map<string, Room> = new Map();
   private playerToRoom: Map<string, string> = new Map();
 
-  createRoom(hostId: string, hostName: string): Room {
+  createRoom(hostId: string, hostName: string): { room: Room; reconnectToken: string } {
     let code = generateRoomCode();
     while (this.rooms.has(code)) {
       code = generateRoomCode();
     }
 
+    const reconnectToken = generateReconnectToken();
     const host: Player = {
       id: hostId,
       name: hostName,
       role: null,
       isHost: true,
       connected: true,
+      reconnectToken,
     };
 
     const room: Room = {
@@ -52,10 +59,10 @@ export class RoomManager {
     this.rooms.set(code, room);
     this.playerToRoom.set(hostId, code);
 
-    return room;
+    return { room, reconnectToken };
   }
 
-  joinRoom(roomCode: string, playerId: string, playerName: string): Room | null {
+  joinRoom(roomCode: string, playerId: string, playerName: string): { room: Room; reconnectToken: string } | null {
     const room = this.rooms.get(roomCode);
     if (!room) return null;
 
@@ -63,18 +70,20 @@ export class RoomManager {
 
     if (room.gameState.phase !== 'WAITING') return null;
 
+    const reconnectToken = generateReconnectToken();
     const player: Player = {
       id: playerId,
       name: playerName,
       role: null,
       isHost: false,
       connected: true,
+      reconnectToken,
     };
 
     room.players.set(playerId, player);
     this.playerToRoom.set(playerId, roomCode);
 
-    return room;
+    return { room, reconnectToken };
   }
 
   leaveRoom(playerId: string): { room: Room; wasHost: boolean; newHostId: string | null } | null {
@@ -126,12 +135,17 @@ export class RoomManager {
     return { room, shouldDelete };
   }
 
-  reconnectPlayer(roomCode: string, playerId: string): Room | null {
+  reconnectPlayer(roomCode: string, playerId: string, reconnectToken: string): Room | null {
     const room = this.rooms.get(roomCode);
     if (!room) return null;
 
     const player = room.players.get(playerId);
     if (!player) return null;
+
+    // Validate reconnect token using timing-safe comparison
+    if (!player.reconnectToken || player.reconnectToken !== reconnectToken) {
+      return null;
+    }
 
     player.connected = true;
     player.disconnectedAt = undefined;

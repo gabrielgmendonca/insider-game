@@ -17,6 +17,7 @@ export interface Player {
   isHost: boolean;
   connected: boolean;
   disconnectedAt?: number;
+  reconnectToken: string;
 }
 
 export interface Question {
@@ -84,7 +85,7 @@ export interface PublicGameState {
 // Socket Events
 export interface ServerToClientEvents {
   room_created: (data: { roomCode: string }) => void;
-  room_joined: (data: { room: RoomInfo; playerId: string }) => void;
+  room_joined: (data: { room: RoomInfo; playerId: string; reconnectToken: string }) => void;
   player_joined: (data: { player: PlayerInfo }) => void;
   player_left: (data: { playerId: string }) => void;
   player_reconnected: (data: { playerId: string }) => void;
@@ -116,5 +117,5 @@ export interface ClientToServerEvents {
   approve_guess: (data: { questionId: string; approved: boolean }) => void;
   guess_word: (data: { word: string }) => void;
   submit_vote: (data: { votedPlayerId: string }) => void;
-  reconnect_to_room: (data: { roomCode: string; playerId: string }) => void;
+  reconnect_to_room: (data: { roomCode: string; playerId: string; reconnectToken: string }) => void;
 }

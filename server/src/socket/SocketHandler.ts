@@ -21,13 +21,14 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
         return;
       }
 
-      const room = roomManager.createRoom(socket.id, playerName);
+      const { room, reconnectToken } = roomManager.createRoom(socket.id, playerName);
       socket.join(room.code);
 
       socket.emit('room_created', { roomCode: room.code });
       socket.emit('room_joined', {
         room: roomManager.toRoomInfo(room, socket.id),
         playerId: socket.id,
+        reconnectToken,
       });
     });
 
@@ -38,12 +39,13 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
         return;
       }
 
-      const room = roomManager.joinRoom(roomCode.toUpperCase(), socket.id, playerName);
-      if (!room) {
+      const result = roomManager.joinRoom(roomCode.toUpperCase(), socket.id, playerName);
+      if (!result) {
         socket.emit('error', { message: 'Room not found, full, or game in progress' });
         return;
       }
 
+      const { room, reconnectToken } = result;
       socket.join(room.code);
 
       const player = room.players.get(socket.id)!;
@@ -60,22 +62,31 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
       socket.emit('room_joined', {
         room: roomManager.toRoomInfo(room, socket.id),
         playerId: socket.id,
+        reconnectToken,
       });
     });
 
-    socket.on('reconnect_to_room', ({ roomCode, playerId }) => {
-      const room = roomManager.reconnectPlayer(roomCode.toUpperCase(), playerId);
+    socket.on('reconnect_to_room', ({ roomCode, playerId, reconnectToken }) => {
+      if (!reconnectToken) {
+        socket.emit('error', { message: 'Invalid reconnection credentials' });
+        return;
+      }
+
+      const room = roomManager.reconnectPlayer(roomCode.toUpperCase(), playerId, reconnectToken);
       if (!room) {
-        socket.emit('error', { message: 'Cannot reconnect to room' });
+        socket.emit('error', { message: 'Cannot reconnect to room - invalid credentials or room not found' });
         return;
       }
 
       socket.join(room.code);
       socket.to(room.code).emit('player_reconnected', { playerId });
 
+      // Get the player's token to send back (it's the same token, but confirms validity)
+      const player = room.players.get(playerId);
       socket.emit('room_joined', {
         room: roomManager.toRoomInfo(room, playerId),
         playerId,
+        reconnectToken: player!.reconnectToken,
       });
     });
 
