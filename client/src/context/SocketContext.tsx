@@ -24,7 +24,10 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const newSocket = io('http://localhost:4000', {
+    // In production, connect to same origin; in development, connect to localhost:4000
+    const serverUrl = import.meta.env.PROD ? window.location.origin : 'http://localhost:4000';
+
+    const newSocket = io(serverUrl, {
       transports: ['websocket', 'polling'],
     });
 
